@@ -1,1 +1,1 @@
-# ComputerVision_Tutorial
+# CAU_25_Spring_ComputerVision
