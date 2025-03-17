@@ -1,0 +1,467 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "adde8f62-f60b-4041-86a0-0d1f232440da",
+   "metadata": {},
+   "source": [
+    "# Tutorial_yolov5_voc.ipynb"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "29d9f03c-cb69-4f86-add0-18c130d58bf2",
+   "metadata": {},
+   "source": [
+    "## 1. 라이브러리 설치 & 임포트"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "0fd7d524-e427-4fa2-b059-bd0d118d0488",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "PyTorch 버전 : 2.6.0+cu118\n",
+      "Torchvision 버전 : 0.21.0+cu118\n",
+      "사용 중인 디바이스 : cuda\n"
+     ]
+    }
+   ],
+   "source": [
+    "import torch\n",
+    "import torchvision\n",
+    "from torchvision import datasets\n",
+    "import os\n",
+    "\n",
+    "print(\"PyTorch 버전 :\", torch.__version__)\n",
+    "print(\"Torchvision 버전 :\", torchvision.__version__)\n",
+    "device = \"cuda\" if torch.cuda.is_available() else \"cpu\"\n",
+    "print(\"사용 중인 디바이스 :\", device)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "3c5f8df1-7c44-43a4-b308-eb1faa065a0a",
+   "metadata": {},
+   "source": [
+    "## 2. Pascal VOC 데이터셋 다운로드 (torchvision)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "a7014002-89f7-4c59-88f9-0048325445f3",
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Using downloaded and verified file: ./VOCtrainval_06-Nov-2007.tar\n",
+      "Extracting ./VOCtrainval_06-Nov-2007.tar to ./\n",
+      "VOC 2007 trainset 다운로드 완료!\n",
+      "데이터 수: 2501\n",
+      "저장 경로 구조 확인: ['VOC2007']\n"
+     ]
+    }
+   ],
+   "source": [
+    "from torchvision.datasets import VOCDetection\n",
+    "\n",
+    "# 로컬(혹은 Colab)에서 사용할 루트 경로 지정\n",
+    "# 예: 현재 디렉토리('.') 아래에 VOCdevkit 폴더가 생성됨\n",
+    "DATA_ROOT = \"./\"\n",
+    "\n",
+    "# VOCDetection으로 train 데이터셋을 다운로드\n",
+    "voc_train = VOCDetection(\n",
+    "    root=DATA_ROOT,\n",
+    "    year=\"2007\",\n",
+    "    image_set=\"train\",  # trainval, test 등 가능\n",
+    "    download=True,       # 자동 다운로드\n",
+    "    transform=None,\n",
+    "    target_transform=None\n",
+    ")\n",
+    "\n",
+    "print(\"VOC 2007 trainset 다운로드 완료!\")\n",
+    "print(\"데이터 수:\", len(voc_train))\n",
+    "print(\"저장 경로 구조 확인:\", os.listdir(os.path.join(DATA_ROOT, \"VOCdevkit\")))\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "ce301181-2f9d-418c-a00b-9ec4cd7d93a3",
+   "metadata": {},
+   "source": [
+    "## 3. VOC XML을 YOLO 텍스트로 변환하는 함수"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "2e169f30-f2bc-4973-a1b3-ad246a69b09b",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import os\n",
+    "import xml.etree.ElementTree as ET\n",
+    "import glob\n",
+    "import random\n",
+    "import shutil\n",
+    "import numpy as np\n",
+    "\n",
+    "# 경로 설정\n",
+    "voc_root = \"/jupyter_project/Spring_cv/VOCdevkit/VOC2007\"\n",
+    "voc_annotations = os.path.join(voc_root, \"Annotations\")\n",
+    "voc_images = os.path.join(voc_root, \"JPEGImages\")\n",
+    "\n",
+    "# YOLO 데이터셋 저장 위치\n",
+    "yolo_dataset = \"/jupyter_project/Spring_cv/yolo_voc_dataset\"\n",
+    "os.makedirs(yolo_dataset, exist_ok=True)\n",
+    "\n",
+    "# 클래스 목록\n",
+    "voc_classes = [\n",
+    "    \"aeroplane\", \"bicycle\", \"bird\", \"boat\", \"bottle\",\n",
+    "    \"bus\", \"car\", \"cat\", \"chair\", \"cow\",\n",
+    "    \"diningtable\", \"dog\", \"horse\", \"motorbike\", \"person\",\n",
+    "    \"pottedplant\", \"sheep\", \"sofa\", \"train\", \"tvmonitor\"\n",
+    "]\n",
+    "\n",
+    "# VOC XML을 YOLO 텍스트로 변환하는 함수\n",
+    "def convert_voc_to_yolo(xml_file, output_dir):\n",
+    "    tree = ET.parse(xml_file)\n",
+    "    root = tree.getroot()\n",
+    "    \n",
+    "    size = root.find(\"size\")\n",
+    "    width = int(size.find(\"width\").text)\n",
+    "    height = int(size.find(\"height\").text)\n",
+    "    \n",
+    "    filename = root.find(\"filename\").text\n",
+    "    base_name = os.path.splitext(filename)[0]\n",
+    "    \n",
+    "    yolo_lines = []\n",
+    "    \n",
+    "    for obj in root.findall(\"object\"):\n",
+    "        # 클래스 이름 및 ID 가져오기\n",
+    "        class_name = obj.find(\"name\").text\n",
+    "        if class_name not in voc_classes:\n",
+    "            continue\n",
+    "            \n",
+    "        class_id = voc_classes.index(class_name)\n",
+    "        \n",
+    "        # difficult 플래그 확인 (옵션)\n",
+    "        difficult = obj.find(\"difficult\")\n",
+    "        if difficult is not None and int(difficult.text) == 1:\n",
+    "            continue\n",
+    "        \n",
+    "        # 바운딩 박스 좌표 가져오기\n",
+    "        bbox = obj.find(\"bndbox\")\n",
+    "        xmin = float(bbox.find(\"xmin\").text)\n",
+    "        ymin = float(bbox.find(\"ymin\").text)\n",
+    "        xmax = float(bbox.find(\"xmax\").text)\n",
+    "        ymax = float(bbox.find(\"ymax\").text)\n",
+    "        \n",
+    "        # YOLO 형식으로 변환 (중심점 x, y, 너비, 높이) - 모두 0~1 사이 값\n",
+    "        x_center = ((xmin + xmax) / 2) / width\n",
+    "        y_center = ((ymin + ymax) / 2) / height\n",
+    "        box_width = (xmax - xmin) / width\n",
+    "        box_height = (ymax - ymin) / height\n",
+    "        \n",
+    "        # YOLO 형식으로 저장\n",
+    "        yolo_lines.append(f\"{class_id} {x_center:.6f} {y_center:.6f} {box_width:.6f} {box_height:.6f}\")\n",
+    "    \n",
+    "    # 변환된 라벨 저장\n",
+    "    if yolo_lines:  # 유효한 객체가 있는 경우에만 저장\n",
+    "        with open(os.path.join(output_dir, f\"{base_name}.txt\"), \"w\") as f:\n",
+    "            f.write(\"\\n\".join(yolo_lines))\n",
+    "        return True\n",
+    "    return False"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "3bdf7694-903a-4741-a996-91831c6ce2cc",
+   "metadata": {},
+   "source": [
+    "## 4. 데이터셋 구성 (train/val 분할)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "54b8b4b3-b603-44d2-9eed-5905446a01f5",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def setup_yolo_dataset():\n",
+    "    # 디렉토리 생성\n",
+    "    os.makedirs(os.path.join(yolo_dataset, \"images\", \"train\"), exist_ok=True)\n",
+    "    os.makedirs(os.path.join(yolo_dataset, \"images\", \"val\"), exist_ok=True)\n",
+    "    os.makedirs(os.path.join(yolo_dataset, \"labels\", \"train\"), exist_ok=True)\n",
+    "    os.makedirs(os.path.join(yolo_dataset, \"labels\", \"val\"), exist_ok=True)\n",
+    "    \n",
+    "    # YOLO 라벨 저장 디렉토리\n",
+    "    temp_labels_dir = os.path.join(yolo_dataset, \"temp_labels\")\n",
+    "    os.makedirs(temp_labels_dir, exist_ok=True)\n",
+    "    \n",
+    "    # 모든 XML 파일에 대한 라벨 변환\n",
+    "    xml_files = glob.glob(os.path.join(voc_annotations, \"*.xml\"))\n",
+    "    valid_images = []\n",
+    "    \n",
+    "    for xml_file in xml_files:\n",
+    "        base_name = os.path.splitext(os.path.basename(xml_file))[0]\n",
+    "        img_file = os.path.join(voc_images, f\"{base_name}.jpg\")\n",
+    "        \n",
+    "        # 이미지 파일이 존재하고 라벨 변환에 성공한 경우만 유효\n",
+    "        if os.path.exists(img_file) and convert_voc_to_yolo(xml_file, temp_labels_dir):\n",
+    "            valid_images.append(base_name)\n",
+    "    \n",
+    "    print(f\"총 {len(valid_images)}개의 유효한 이미지와 라벨을 찾았습니다.\")\n",
+    "    \n",
+    "    # train/val 분할 (80/20)\n",
+    "    random.shuffle(valid_images)\n",
+    "    split_idx = int(len(valid_images) * 0.8)\n",
+    "    train_images = valid_images[:split_idx]\n",
+    "    val_images = valid_images[split_idx:]\n",
+    "    \n",
+    "    print(f\"학습용: {len(train_images)}개, 검증용: {len(val_images)}개\")\n",
+    "    \n",
+    "    # 이미지와 라벨 파일 복사\n",
+    "    for img_set, subset in [(train_images, \"train\"), (val_images, \"val\")]:\n",
+    "        for img_name in img_set:\n",
+    "            # 이미지 복사\n",
+    "            src_img = os.path.join(voc_images, f\"{img_name}.jpg\")\n",
+    "            dst_img = os.path.join(yolo_dataset, \"images\", subset, f\"{img_name}.jpg\")\n",
+    "            shutil.copy(src_img, dst_img)\n",
+    "            \n",
+    "            # 라벨 복사\n",
+    "            src_label = os.path.join(temp_labels_dir, f\"{img_name}.txt\")\n",
+    "            dst_label = os.path.join(yolo_dataset, \"labels\", subset, f\"{img_name}.txt\")\n",
+    "            if os.path.exists(src_label):\n",
+    "                shutil.copy(src_label, dst_label)\n",
+    "    \n",
+    "    # 임시 라벨 디렉토리 삭제\n",
+    "    # shutil.rmtree(temp_labels_dir)\n",
+    "    \n",
+    "    return train_images, val_images\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "f900050d-2c8c-4517-af7a-3feed49fdafd",
+   "metadata": {},
+   "source": [
+    "## 5. data.yaml 파일 생성"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "a71ca52f-63ca-4453-a4c4-0b81c65fb0ab",
+   "metadata": {},
+   "outputs": [
+    {
+     "ename": "SyntaxError",
+     "evalue": "invalid syntax (106097830.py, line 5)",
+     "output_type": "error",
+     "traceback": [
+      "\u001b[1;36m  Cell \u001b[1;32mIn[3], line 5\u001b[1;36m\u001b[0m\n\u001b[1;33m    yaml_content = .format(dataset_path, len(voc_classes), voc_classes)\u001b[0m\n\u001b[1;37m                   ^\u001b[0m\n\u001b[1;31mSyntaxError\u001b[0m\u001b[1;31m:\u001b[0m invalid syntax\n"
+     ]
+    }
+   ],
+   "source": [
+    "def create_data_yaml():\n",
+    "    # 경로 내 백슬래시 처리 (백슬래시를 슬래시로 변경)\n",
+    "    dataset_path = yolo_dataset.replace('\\\\', '/')\n",
+    "    \n",
+    "    yaml_content = \"\"\"\n",
+    "# YOLOv5/v8 학습을 위한 데이터 설정\n",
+    "path: {0}\n",
+    "train: images/train  # train 이미지 디렉토리 경로 (path에 상대적)\n",
+    "val: images/val  # validation 이미지 디렉토리 경로 (path에 상대적)\n",
+    "\n",
+    "# 클래스 정보\n",
+    "nc: {1}  # 클래스 수\n",
+    "names: {2}  # 클래스 이름\n",
+    "\"\"\".format(dataset_path, len(voc_classes), voc_classes)\n",
+    "    \n",
+    "    yaml_path = os.path.join(yolo_dataset, \"data.yaml\")\n",
+    "    with open(yaml_path, \"w\") as f:\n",
+    "        f.write(yaml_content)\n",
+    "    \n",
+    "    return yaml_path\n",
+    "\n",
+    "# 전체 과정 실행\n",
+    "print(\"VOC 데이터셋을 YOLO 형식으로 변환 중...\")\n",
+    "train_images, val_images = setup_yolo_dataset()\n",
+    "yaml_path = create_data_yaml()\n",
+    "print(f\"변환 완료! data.yaml 파일: {yaml_path}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "60d3d6fc-c747-4661-9c98-24c4f47b8813",
+   "metadata": {},
+   "source": [
+    "## 6. YOLOv5 학습 (Ultralytics) "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 10,
+   "id": "3294b586-0401-4a74-9757-7278f0ead785",
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "PRO TIP  Replace 'model=yolov5s.pt' with new 'model=yolov5su.pt'.\n",
+      "YOLOv5 'u' models are trained with https://github.com/ultralytics/ultralytics and feature improved performance vs standard YOLOv5 models trained with https://github.com/ultralytics/yolov5.\n",
+      "\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "사용 중인 디바이스: cuda\n",
+      "사용 가능한 GPU 수: 1\n",
+      "GPU 0: NVIDIA GeForce RTX 3060\n"
+     ]
+    },
+    {
+     "ename": "UnpicklingError",
+     "evalue": "Weights only load failed. This file can still be loaded, to do so you have two options, \u001b[1mdo those steps only if you trust the source of the checkpoint\u001b[0m. \n\t(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.\n\t(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.\n\tWeightsUnpickler error: Unsupported global: GLOBAL torch.nn.modules.container.Sequential was not an allowed global by default. Please use `torch.serialization.add_safe_globals([Sequential])` or the `torch.serialization.safe_globals([Sequential])` context manager to allowlist this global if you trust this class/function.\n\nCheck the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.",
+     "output_type": "error",
+     "traceback": [
+      "\u001b[1;31m---------------------------------------------------------------------------\u001b[0m",
+      "\u001b[1;31mUnpicklingError\u001b[0m                           Traceback (most recent call last)",
+      "Cell \u001b[1;32mIn[10], line 21\u001b[0m\n\u001b[0;32m     18\u001b[0m         \u001b[38;5;28mprint\u001b[39m(\u001b[38;5;124mf\u001b[39m\u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mGPU \u001b[39m\u001b[38;5;132;01m{\u001b[39;00mi\u001b[38;5;132;01m}\u001b[39;00m\u001b[38;5;124m: \u001b[39m\u001b[38;5;132;01m{\u001b[39;00mtorch\u001b[38;5;241m.\u001b[39mcuda\u001b[38;5;241m.\u001b[39mget_device_name(i)\u001b[38;5;132;01m}\u001b[39;00m\u001b[38;5;124m\"\u001b[39m)\n\u001b[0;32m     20\u001b[0m \u001b[38;5;66;03m# 모델 로드\u001b[39;00m\n\u001b[1;32m---> 21\u001b[0m model \u001b[38;5;241m=\u001b[39m \u001b[43mYOLO\u001b[49m\u001b[43m(\u001b[49m\u001b[38;5;124;43m\"\u001b[39;49m\u001b[38;5;124;43myolov5s.pt\u001b[39;49m\u001b[38;5;124;43m\"\u001b[39;49m\u001b[43m)\u001b[49m\n\u001b[0;32m     22\u001b[0m \u001b[38;5;28mprint\u001b[39m(\u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mYOLOv5 모델 로드 완료!\u001b[39m\u001b[38;5;124m\"\u001b[39m)\n\u001b[0;32m     24\u001b[0m \u001b[38;5;66;03m# 학습 - GPU 사용\u001b[39;00m\n",
+      "File \u001b[1;32m~\\anaconda3\\lib\\site-packages\\ultralytics\\yolo\\engine\\model.py:107\u001b[0m, in \u001b[0;36mYOLO.__init__\u001b[1;34m(self, model, task)\u001b[0m\n\u001b[0;32m    105\u001b[0m     \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39m_new(model, task)\n\u001b[0;32m    106\u001b[0m \u001b[38;5;28;01melse\u001b[39;00m:\n\u001b[1;32m--> 107\u001b[0m     \u001b[38;5;28;43mself\u001b[39;49m\u001b[38;5;241;43m.\u001b[39;49m\u001b[43m_load\u001b[49m\u001b[43m(\u001b[49m\u001b[43mmodel\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mtask\u001b[49m\u001b[43m)\u001b[49m\n",
+      "File \u001b[1;32m~\\anaconda3\\lib\\site-packages\\ultralytics\\yolo\\engine\\model.py:153\u001b[0m, in \u001b[0;36mYOLO._load\u001b[1;34m(self, weights, task)\u001b[0m\n\u001b[0;32m    151\u001b[0m suffix \u001b[38;5;241m=\u001b[39m Path(weights)\u001b[38;5;241m.\u001b[39msuffix\n\u001b[0;32m    152\u001b[0m \u001b[38;5;28;01mif\u001b[39;00m suffix \u001b[38;5;241m==\u001b[39m \u001b[38;5;124m'\u001b[39m\u001b[38;5;124m.pt\u001b[39m\u001b[38;5;124m'\u001b[39m:\n\u001b[1;32m--> 153\u001b[0m     \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mmodel, \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mckpt \u001b[38;5;241m=\u001b[39m \u001b[43mattempt_load_one_weight\u001b[49m\u001b[43m(\u001b[49m\u001b[43mweights\u001b[49m\u001b[43m)\u001b[49m\n\u001b[0;32m    154\u001b[0m     \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mtask \u001b[38;5;241m=\u001b[39m \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mmodel\u001b[38;5;241m.\u001b[39margs[\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mtask\u001b[39m\u001b[38;5;124m'\u001b[39m]\n\u001b[0;32m    155\u001b[0m     \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39moverrides \u001b[38;5;241m=\u001b[39m \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mmodel\u001b[38;5;241m.\u001b[39margs \u001b[38;5;241m=\u001b[39m \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39m_reset_ckpt_args(\u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mmodel\u001b[38;5;241m.\u001b[39margs)\n",
+      "File \u001b[1;32m~\\anaconda3\\lib\\site-packages\\ultralytics\\nn\\tasks.py:407\u001b[0m, in \u001b[0;36mattempt_load_one_weight\u001b[1;34m(weight, device, inplace, fuse)\u001b[0m\n\u001b[0;32m    405\u001b[0m \u001b[38;5;28;01mdef\u001b[39;00m \u001b[38;5;21mattempt_load_one_weight\u001b[39m(weight, device\u001b[38;5;241m=\u001b[39m\u001b[38;5;28;01mNone\u001b[39;00m, inplace\u001b[38;5;241m=\u001b[39m\u001b[38;5;28;01mTrue\u001b[39;00m, fuse\u001b[38;5;241m=\u001b[39m\u001b[38;5;28;01mFalse\u001b[39;00m):\n\u001b[0;32m    406\u001b[0m     \u001b[38;5;66;03m# Loads a single model weights\u001b[39;00m\n\u001b[1;32m--> 407\u001b[0m     ckpt, weight \u001b[38;5;241m=\u001b[39m \u001b[43mtorch_safe_load\u001b[49m\u001b[43m(\u001b[49m\u001b[43mweight\u001b[49m\u001b[43m)\u001b[49m  \u001b[38;5;66;03m# load ckpt\u001b[39;00m\n\u001b[0;32m    408\u001b[0m     args \u001b[38;5;241m=\u001b[39m {\u001b[38;5;241m*\u001b[39m\u001b[38;5;241m*\u001b[39mDEFAULT_CFG_DICT, \u001b[38;5;241m*\u001b[39m\u001b[38;5;241m*\u001b[39mckpt[\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mtrain_args\u001b[39m\u001b[38;5;124m'\u001b[39m]}  \u001b[38;5;66;03m# combine model and default args, preferring model args\u001b[39;00m\n\u001b[0;32m    409\u001b[0m     model \u001b[38;5;241m=\u001b[39m (ckpt\u001b[38;5;241m.\u001b[39mget(\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mema\u001b[39m\u001b[38;5;124m'\u001b[39m) \u001b[38;5;129;01mor\u001b[39;00m ckpt[\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mmodel\u001b[39m\u001b[38;5;124m'\u001b[39m])\u001b[38;5;241m.\u001b[39mto(device)\u001b[38;5;241m.\u001b[39mfloat()  \u001b[38;5;66;03m# FP32 model\u001b[39;00m\n",
+      "File \u001b[1;32m~\\anaconda3\\lib\\site-packages\\ultralytics\\nn\\tasks.py:347\u001b[0m, in \u001b[0;36mtorch_safe_load\u001b[1;34m(weight)\u001b[0m\n\u001b[0;32m    345\u001b[0m file \u001b[38;5;241m=\u001b[39m attempt_download_asset(weight)  \u001b[38;5;66;03m# search online if missing locally\u001b[39;00m\n\u001b[0;32m    346\u001b[0m \u001b[38;5;28;01mtry\u001b[39;00m:\n\u001b[1;32m--> 347\u001b[0m     \u001b[38;5;28;01mreturn\u001b[39;00m \u001b[43mtorch\u001b[49m\u001b[38;5;241;43m.\u001b[39;49m\u001b[43mload\u001b[49m\u001b[43m(\u001b[49m\u001b[43mfile\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mmap_location\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[38;5;124;43m'\u001b[39;49m\u001b[38;5;124;43mcpu\u001b[39;49m\u001b[38;5;124;43m'\u001b[39;49m\u001b[43m)\u001b[49m, file  \u001b[38;5;66;03m# load\u001b[39;00m\n\u001b[0;32m    348\u001b[0m \u001b[38;5;28;01mexcept\u001b[39;00m \u001b[38;5;167;01mModuleNotFoundError\u001b[39;00m \u001b[38;5;28;01mas\u001b[39;00m e:  \u001b[38;5;66;03m# e.name is missing module name\u001b[39;00m\n\u001b[0;32m    349\u001b[0m     \u001b[38;5;28;01mif\u001b[39;00m e\u001b[38;5;241m.\u001b[39mname \u001b[38;5;241m==\u001b[39m \u001b[38;5;124m'\u001b[39m\u001b[38;5;124mmodels\u001b[39m\u001b[38;5;124m'\u001b[39m:\n",
+      "File \u001b[1;32m~\\anaconda3\\lib\\site-packages\\torch\\serialization.py:1470\u001b[0m, in \u001b[0;36mload\u001b[1;34m(f, map_location, pickle_module, weights_only, mmap, **pickle_load_args)\u001b[0m\n\u001b[0;32m   1462\u001b[0m                 \u001b[38;5;28;01mreturn\u001b[39;00m _load(\n\u001b[0;32m   1463\u001b[0m                     opened_zipfile,\n\u001b[0;32m   1464\u001b[0m                     map_location,\n\u001b[1;32m   (...)\u001b[0m\n\u001b[0;32m   1467\u001b[0m                     \u001b[38;5;241m*\u001b[39m\u001b[38;5;241m*\u001b[39mpickle_load_args,\n\u001b[0;32m   1468\u001b[0m                 )\n\u001b[0;32m   1469\u001b[0m             \u001b[38;5;28;01mexcept\u001b[39;00m pickle\u001b[38;5;241m.\u001b[39mUnpicklingError \u001b[38;5;28;01mas\u001b[39;00m e:\n\u001b[1;32m-> 1470\u001b[0m                 \u001b[38;5;28;01mraise\u001b[39;00m pickle\u001b[38;5;241m.\u001b[39mUnpicklingError(_get_wo_message(\u001b[38;5;28mstr\u001b[39m(e))) \u001b[38;5;28;01mfrom\u001b[39;00m \u001b[38;5;28;01mNone\u001b[39;00m\n\u001b[0;32m   1471\u001b[0m         \u001b[38;5;28;01mreturn\u001b[39;00m _load(\n\u001b[0;32m   1472\u001b[0m             opened_zipfile,\n\u001b[0;32m   1473\u001b[0m             map_location,\n\u001b[1;32m   (...)\u001b[0m\n\u001b[0;32m   1476\u001b[0m             \u001b[38;5;241m*\u001b[39m\u001b[38;5;241m*\u001b[39mpickle_load_args,\n\u001b[0;32m   1477\u001b[0m         )\n\u001b[0;32m   1478\u001b[0m \u001b[38;5;28;01mif\u001b[39;00m mmap:\n",
+      "\u001b[1;31mUnpicklingError\u001b[0m: Weights only load failed. This file can still be loaded, to do so you have two options, \u001b[1mdo those steps only if you trust the source of the checkpoint\u001b[0m. \n\t(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.\n\t(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.\n\tWeightsUnpickler error: Unsupported global: GLOBAL torch.nn.modules.container.Sequential was not an allowed global by default. Please use `torch.serialization.add_safe_globals([Sequential])` or the `torch.serialization.safe_globals([Sequential])` context manager to allowlist this global if you trust this class/function.\n\nCheck the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html."
+     ]
+    }
+   ],
+   "source": [
+    "from ultralytics import YOLO\n",
+    "import os\n",
+    "import torch\n",
+    "\n",
+    "# GPU 사용 가능 여부 확인\n",
+    "device = \"cuda\" if torch.cuda.is_available() else \"cpu\"\n",
+    "print(f\"사용 중인 디바이스: {device}\")\n",
+    "\n",
+    "# 사용 가능한 GPU 수 확인 (여러 개의 GPU가 있는 경우)\n",
+    "if device == \"cuda\":\n",
+    "    num_gpus = torch.cuda.device_count()\n",
+    "    print(f\"사용 가능한 GPU 수: {num_gpus}\")\n",
+    "    for i in range(num_gpus):\n",
+    "        print(f\"GPU {i}: {torch.cuda.get_device_name(i)}\")\n",
+    "\n",
+    "# 모델 로드\n",
+    "model = YOLO(\"yolov5s.pt\")\n",
+    "print(\"YOLOv5 모델 로드 완료!\")\n",
+    "\n",
+    "# 학습 - GPU 사용\n",
+    "model.train(\n",
+    "    data=os.path.join(yolo_dataset, \"data.yaml\"),\n",
+    "    epochs=5,\n",
+    "    batch=4,\n",
+    "    imgsz=416,\n",
+    "    name=\"yolov5_voc_demo\",\n",
+    "    device=0,\n",
+    "    workers=0    \n",
+    ")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "78b4c457-7c40-4653-a612-d249d2142775",
+   "metadata": {},
+   "source": [
+    "## 7. 검증(Validation) 및 추론 테스트 "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "fa1cc903-e6de-405d-a5a6-8e9b89970f7d",
+   "metadata": {},
+   "outputs": [
+    {
+     "ename": "TypeError",
+     "evalue": "'IterableSimpleNamespace' object is not subscriptable",
+     "output_type": "error",
+     "traceback": [
+      "\u001b[1;31m---------------------------------------------------------------------------\u001b[0m",
+      "\u001b[1;31mTypeError\u001b[0m                                 Traceback (most recent call last)",
+      "Cell \u001b[1;32mIn[6], line 6\u001b[0m\n\u001b[0;32m      1\u001b[0m \u001b[38;5;66;03m############################################################\u001b[39;00m\n\u001b[0;32m      2\u001b[0m \u001b[38;5;66;03m#              6. 검증(Validation) 및 추론 테스트         #\u001b[39;00m\n\u001b[0;32m      3\u001b[0m \u001b[38;5;66;03m############################################################\u001b[39;00m\n\u001b[0;32m      4\u001b[0m \n\u001b[0;32m      5\u001b[0m \u001b[38;5;66;03m# 학습 결과로 나온 best.pt 모델을 불러와 val 진행\u001b[39;00m\n\u001b[1;32m----> 6\u001b[0m results \u001b[38;5;241m=\u001b[39m \u001b[43mmodel\u001b[49m\u001b[38;5;241;43m.\u001b[39;49m\u001b[43mval\u001b[49m\u001b[43m(\u001b[49m\u001b[43m)\u001b[49m\n\u001b[0;32m      7\u001b[0m \u001b[38;5;28mprint\u001b[39m(results)\n\u001b[0;32m      9\u001b[0m \u001b[38;5;66;03m# 추론 테스트\u001b[39;00m\n",
+      "File \u001b[1;32m~\\anaconda3\\lib\\site-packages\\torch\\utils\\_contextlib.py:116\u001b[0m, in \u001b[0;36mcontext_decorator.<locals>.decorate_context\u001b[1;34m(*args, **kwargs)\u001b[0m\n\u001b[0;32m    113\u001b[0m \u001b[38;5;129m@functools\u001b[39m\u001b[38;5;241m.\u001b[39mwraps(func)\n\u001b[0;32m    114\u001b[0m \u001b[38;5;28;01mdef\u001b[39;00m \u001b[38;5;21mdecorate_context\u001b[39m(\u001b[38;5;241m*\u001b[39margs, \u001b[38;5;241m*\u001b[39m\u001b[38;5;241m*\u001b[39mkwargs):\n\u001b[0;32m    115\u001b[0m     \u001b[38;5;28;01mwith\u001b[39;00m ctx_factory():\n\u001b[1;32m--> 116\u001b[0m         \u001b[38;5;28;01mreturn\u001b[39;00m func(\u001b[38;5;241m*\u001b[39margs, \u001b[38;5;241m*\u001b[39m\u001b[38;5;241m*\u001b[39mkwargs)\n",
+      "File \u001b[1;32m~\\anaconda3\\lib\\site-packages\\ultralytics\\yolo\\engine\\model.py:277\u001b[0m, in \u001b[0;36mYOLO.val\u001b[1;34m(self, data, **kwargs)\u001b[0m\n\u001b[0;32m    275\u001b[0m     args\u001b[38;5;241m.\u001b[39mtask \u001b[38;5;241m=\u001b[39m \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mtask\n\u001b[0;32m    276\u001b[0m \u001b[38;5;28;01mif\u001b[39;00m args\u001b[38;5;241m.\u001b[39mimgsz \u001b[38;5;241m==\u001b[39m DEFAULT_CFG\u001b[38;5;241m.\u001b[39mimgsz \u001b[38;5;129;01mand\u001b[39;00m \u001b[38;5;129;01mnot\u001b[39;00m \u001b[38;5;28misinstance\u001b[39m(\u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mmodel, (\u001b[38;5;28mstr\u001b[39m, Path)):\n\u001b[1;32m--> 277\u001b[0m     args\u001b[38;5;241m.\u001b[39mimgsz \u001b[38;5;241m=\u001b[39m \u001b[38;5;28;43mself\u001b[39;49m\u001b[38;5;241;43m.\u001b[39;49m\u001b[43mmodel\u001b[49m\u001b[38;5;241;43m.\u001b[39;49m\u001b[43margs\u001b[49m\u001b[43m[\u001b[49m\u001b[38;5;124;43m'\u001b[39;49m\u001b[38;5;124;43mimgsz\u001b[39;49m\u001b[38;5;124;43m'\u001b[39;49m\u001b[43m]\u001b[49m  \u001b[38;5;66;03m# use trained imgsz unless custom value is passed\u001b[39;00m\n\u001b[0;32m    278\u001b[0m args\u001b[38;5;241m.\u001b[39mimgsz \u001b[38;5;241m=\u001b[39m check_imgsz(args\u001b[38;5;241m.\u001b[39mimgsz, max_dim\u001b[38;5;241m=\u001b[39m\u001b[38;5;241m1\u001b[39m)\n\u001b[0;32m    280\u001b[0m validator \u001b[38;5;241m=\u001b[39m TASK_MAP[\u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39mtask][\u001b[38;5;241m2\u001b[39m](args\u001b[38;5;241m=\u001b[39margs)\n",
+      "\u001b[1;31mTypeError\u001b[0m: 'IterableSimpleNamespace' object is not subscriptable"
+     ]
+    }
+   ],
+   "source": [
+    "# 학습 결과로 나온 best.pt 모델을 불러와 val 진행\n",
+    "results = model.val()\n",
+    "print(results)\n",
+    "\n",
+    "# 추론 테스트\n",
+    "import cv2\n",
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "# val.txt 중 임의의 이미지 하나 선택\n",
+    "sample_img_id = test_ids[0]  # test_ids에 있는 것 중 하나\n",
+    "sample_img_path = os.path.join(image_dir, sample_img_id + \".jpg\")\n",
+    "\n",
+    "preds = model.predict(source=sample_img_path, conf=0.25, save=True)\n",
+    "output_img_path = preds[0].path\n",
+    "\n",
+    "# 시각화\n",
+    "img_result = cv2.imread(output_img_path)\n",
+    "img_result = cv2.cvtColor(img_result, cv2.COLOR_BGR2RGB)\n",
+    "\n",
+    "plt.figure(figsize=(8,8))\n",
+    "plt.imshow(img_result)\n",
+    "plt.axis(\"off\")\n",
+    "plt.title(\"YOLOv5 Inference on Pascal VOC\")\n",
+    "plt.show()\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.9.0"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
