@@ -36,3 +36,8 @@ pip install -r requirements.txt
 ```
 
 설치가 완료되면 Jupyter Notebook을 실행하여 `ComputerVision` 커널을 선택해 사용하면 됩니다.
+
+### *훈련 및 테스트 히스토리 구글드라이브링크
+```bash
+https://drive.google.com/drive/folders/1KCxBWxurjTrliPfGEcQH8QgbLzPzlWsb?usp=sharing
+```
