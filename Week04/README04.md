@@ -5,7 +5,6 @@
 ### 1. 가상환경 생성/활성화
 
 다음 명령어를 통해 Python 3.10을 사용하는 `ComputerVision`이라는 이름의 가상환경을 생성합니다.
-*기존에 생성한 가상환경이 있을 경우 생략
 
 ```bash
 conda create -n ComputerVision python=3.10
