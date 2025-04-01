@@ -38,7 +38,7 @@ pip install -r requirements.txt
 설치가 완료되면 Jupyter Notebook을 실행하여 `ComputerVision` 커널을 선택해 사용하면 됩니다.
 
 
-### 실습에 사용된 데이터셋
+### *실습에 사용된 데이터셋
 
 실습에서 사용된 데이터셋입니다. 
 
