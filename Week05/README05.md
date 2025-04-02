@@ -40,8 +40,8 @@ pip install -r requirements.txt
 
 ### *실습용 데이터셋 및 모델 링크
 
-데이터셋 url
-https://universe.roboflow.com/brain-tumor-jolxi/brain-tumor-detection-o0ggc
+데이터셋 url  
+https://universe.roboflow.com/brain-tumor-jolxi/brain-tumor-detection-o0ggc  
 https://drive.google.com/file/d/1g52RQqFcT6CS2o9IPt6u20A10j-e9ha2/view?usp=drive_link (동일 데이터셋)
 
 모델 url
