@@ -38,10 +38,12 @@ pip install -r requirements.txt
 설치가 완료되면 Jupyter Notebook을 실행하여 `ComputerVision` 커널을 선택해 사용하면 됩니다.
 
 
-### *실습에 사용된 데이터셋
+### *실습용 데이터셋 및 모델 링크
 
-실습에서 사용된 데이터셋입니다. 
+데이터셋 url: https://universe.roboflow.com/brain-tumor-jolxi/brain-tumor-detection-o0ggc
 
 ```bash
 https://drive.google.com/file/d/1g52RQqFcT6CS2o9IPt6u20A10j-e9ha2/view?usp=drive_link
 ```
+
+모델 url: https://link.springer.com/chapter/10.1007/978-3-031-43901-8_57 (RCS-YOLO: A Fast and High-Accuracy Object Detector for Brain Tumor Detection, MICCAI 2023)
