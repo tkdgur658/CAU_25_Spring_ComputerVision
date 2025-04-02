@@ -40,9 +40,9 @@ pip install -r requirements.txt
 
 ### *실습용 데이터셋 및 모델 링크
 
-데이터셋 url  
+데이터셋 url (2개 동일)  
 https://universe.roboflow.com/brain-tumor-jolxi/brain-tumor-detection-o0ggc  
-https://drive.google.com/file/d/1g52RQqFcT6CS2o9IPt6u20A10j-e9ha2/view?usp=drive_link (동일 데이터셋)
+https://drive.google.com/file/d/1g52RQqFcT6CS2o9IPt6u20A10j-e9ha2/view?usp=drive_link 
 
-모델 url
-https://link.springer.com/chapter/10.1007/978-3-031-43901-8_57 (RCS-YOLO: A Fast and High-Accuracy Object Detector for Brain Tumor Detection, MICCAI 2023)
+모델 url (RCS-YOLO: A Fast and High-Accuracy Object Detector for Brain Tumor Detection, MICCAI 2023)  
+https://link.springer.com/chapter/10.1007/978-3-031-43901-8_57 
